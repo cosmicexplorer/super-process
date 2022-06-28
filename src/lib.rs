@@ -549,12 +549,13 @@ pub mod stream {
 
   impl Streaming {
     /// Stream the output of this process through `act`, then analyze the exit status.
-    pub async fn exhaust_output_streams_and_wait<F>(
+    pub async fn exhaust_output_streams_and_wait<F, A>(
       self,
-      act: fn(StdioLine) -> F,
+      act: A,
     ) -> Result<(), exe::CommandErrorWrapper>
     where
       F: Future<Output=Result<(), exe::CommandError>>,
+      A: Fn(StdioLine) -> F,
     {
       let Self {
         stdout,
