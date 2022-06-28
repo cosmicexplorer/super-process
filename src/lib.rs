@@ -56,7 +56,7 @@ pub mod fs {
 
   /// @={0}
   ///
-  /// FIXME
+  /// A path to a file that is assumed to already exist.
   #[derive(Debug, Display, Clone)]
   #[ignore_extra_doc_attributes]
   pub struct File(pub PathBuf);
@@ -70,7 +70,7 @@ pub mod fs {
 
   /// @<{0}
   ///
-  /// FIXME
+  /// A path to a directory that is assumed to already exist.
   #[derive(Debug, Display, Clone)]
   #[ignore_extra_doc_attributes]
   pub struct Directory(pub PathBuf);
@@ -104,7 +104,7 @@ pub mod exe {
 
   /// *{0}
   ///
-  /// FIXME
+  /// A path to an executable file which is assumed to exist.
   #[derive(Debug, Display, Clone)]
   #[ignore_extra_doc_attributes]
   pub struct Exe(pub fs::File);
@@ -138,7 +138,8 @@ pub mod exe {
 
   /// [{0:?}]
   ///
-  /// FIXME
+  /// The command line to provide to the executable. Note that the complete "argv" used by
+  /// [`Command`] contains the executable path prefixed to these arguments.
   #[derive(Debug, Display, Clone, Default)]
   #[ignore_extra_doc_attributes]
   pub struct Argv(pub VecDeque<OsString>);
@@ -176,7 +177,7 @@ pub mod exe {
 
   /// [{0:?}]
   ///
-  /// FIXME
+  /// Environment variables to set in the subprocess environment.
   #[derive(Debug, Display, Clone, Default)]
   #[ignore_extra_doc_attributes]
   pub struct EnvModifications(pub IndexMap<OsString, OsString>);
