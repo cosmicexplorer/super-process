@@ -549,7 +549,52 @@ pub mod stream {
 
   impl Streaming {
     /// Stream the output of this process through `act`, then analyze the exit status.
-    pub async fn exhaust_output_streams_and_wait<F, A>(
+    pub async fn exhaust_byte_streams_and_wait<F, A>(
+      self,
+      act: A,
+    ) -> Result<(), exe::CommandErrorWrapper>
+    where
+      F: Future<Output=Result<(), exe::CommandError>>,
+      A: Fn(StdioChunk) -> F,
+    {
+      let Self {
+        mut stdout,
+        mut stderr,
+        mut child,
+        command,
+      } = self;
+
+      let status = async move {
+        let mut out_buf = [0u8; 300];
+        let mut err_buf = [0u8; 300];
+        loop {
+          tokio::select! {
+            Ok(num_read) = stdout.read(&mut out_buf) => {
+              let chunk = StdioChunk::Out(out_buf[..num_read].to_vec());
+              act(chunk).await?;
+            }
+            Ok(num_read) = stderr.read(&mut err_buf) => {
+              let chunk = StdioChunk::Err(err_buf[..num_read].to_vec());
+              act(chunk).await?;
+            }
+            else => { break; }
+          }
+        }
+        let output = child.status().await?;
+        Ok(output)
+      }
+      .await
+      .map_err(|e: exe::CommandError| {
+        e.command_with_context(command.clone(), "merging async streams".to_string())
+      })?;
+
+      exe::CommandError::analyze_exit_status(status)
+        .map_err(|e| e.command_with_context(command, "checking async exit status".to_string()))?;
+      Ok(())
+    }
+
+    /// Stream the output of this process through `act`, then analyze the exit status.
+    pub async fn exhaust_string_streams_and_wait<F, A>(
       self,
       act: A,
     ) -> Result<(), exe::CommandErrorWrapper>
@@ -609,10 +654,19 @@ pub mod stream {
     /// Wait for the process to exit, printing lines of stdout and stderr to the terminal.
     pub async fn wait(self) -> Result<(), exe::CommandErrorWrapper> {
       self
-        .exhaust_output_streams_and_wait(Self::stdio_streams_callback)
+        .exhaust_string_streams_and_wait(Self::stdio_streams_callback)
         .await?;
       Ok(())
     }
+  }
+
+  /// A chunk of either stdout or stderr from a subprocess.
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  pub enum StdioChunk {
+    /// A chunk of stdout.
+    Out(Vec<u8>),
+    /// A chunk of stderr.
+    Err(Vec<u8>),
   }
 
   /// A line of either stdout or stderr from a subprocess.
