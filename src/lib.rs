@@ -567,17 +567,52 @@ pub mod stream {
       let status = async move {
         let mut out_buf = [0u8; 300];
         let mut err_buf = [0u8; 300];
+        /* TODO: find a nicer way to handle this loop! */
+        let mut out_done: bool = false;
+        let mut err_done: bool = false;
         loop {
-          tokio::select! {
-            Ok(num_read) = stdout.read(&mut out_buf) => {
-              let chunk = StdioChunk::Out(out_buf[..num_read].to_vec());
-              act(chunk).await?;
+          if out_done {
+            if err_done {
+              break;
+            } else {
+              let num_read = stderr.read(&mut err_buf).await?;
+              if num_read == 0 {
+                err_done = true;
+              } else {
+                let chunk = StdioChunk::Err(err_buf[..num_read].to_vec());
+                act(chunk).await?;
+              }
             }
-            Ok(num_read) = stderr.read(&mut err_buf) => {
-              let chunk = StdioChunk::Err(err_buf[..num_read].to_vec());
-              act(chunk).await?;
+          } else {
+            if err_done {
+              let num_read = stdout.read(&mut out_buf).await?;
+              if num_read == 0 {
+                out_done = true;
+              } else {
+                let chunk = StdioChunk::Out(out_buf[..num_read].to_vec());
+                act(chunk).await?;
+              }
+            } else {
+              tokio::select! {
+                Ok(num_read) = stdout.read(&mut out_buf) => {
+                  if num_read == 0 {
+                    out_done = true;
+                  } else {
+                    let chunk = StdioChunk::Out(out_buf[..num_read].to_vec());
+                    act(chunk).await?;
+                  }
+                }
+                Ok(num_read) = stderr.read(&mut err_buf) => {
+                  if num_read == 0 {
+                    err_done = true;
+                  } else {
+                    let chunk = StdioChunk::Err(err_buf[..num_read].to_vec());
+                    act(chunk).await?;
+                  }
+                }
+                else => { break; }
+              }
             }
-            else => { break; }
           }
         }
         let output = child.status().await?;
