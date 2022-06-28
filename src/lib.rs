@@ -21,7 +21,7 @@
 //! An async process creation framework. More of a utility library.
 
 #![deny(rustdoc::missing_crate_level_docs)]
-/* #![warn(missing_docs)] */
+#![warn(missing_docs)]
 /* Make all doctests fail if they produce any warnings. */
 #![doc(test(attr(deny(warnings))))]
 #![deny(clippy::all)]
@@ -29,6 +29,7 @@
 use displaydoc::Display;
 use thiserror::Error;
 
+/// Wrapper for the types of errors this crate can emit.
 #[derive(Debug, Display, Error)]
 pub enum Error {
   /// error executing command line: {0}
@@ -39,10 +40,19 @@ pub enum Error {
   Sh(#[from] sh::ShellError),
 }
 
+/// Representations of filesystem locations on the local host.
+///
+/// *TODO: currently these don't do any validation!*
 pub mod fs {
   use displaydoc::Display;
 
   use std::path::PathBuf;
+
+  /// Trait for objects representing a handle to a filesystem path.
+  pub trait PathWrapper {
+    /// Consume this object and return a path.
+    fn into_path_buf(self) -> PathBuf;
+  }
 
   /// @={0}
   ///
@@ -51,8 +61,8 @@ pub mod fs {
   #[ignore_extra_doc_attributes]
   pub struct File(pub PathBuf);
 
-  impl File {
-    pub fn into_path_buf(self) -> PathBuf {
+  impl PathWrapper for File {
+    fn into_path_buf(self) -> PathBuf {
       let Self(path) = self;
       path
     }
@@ -65,16 +75,17 @@ pub mod fs {
   #[ignore_extra_doc_attributes]
   pub struct Directory(pub PathBuf);
 
-  impl Directory {
-    pub fn into_path_buf(self) -> PathBuf {
+  impl PathWrapper for Directory {
+    fn into_path_buf(self) -> PathBuf {
       let Self(path) = self;
       path
     }
   }
 }
 
+/// Representations of executable files and methods to invoke them as async processes.
 pub mod exe {
-  use super::fs;
+  use super::fs::{self, PathWrapper};
 
   use displaydoc::Display;
   use indexmap::IndexMap;
@@ -83,6 +94,7 @@ pub mod exe {
   use thiserror::Error;
 
   use std::{
+    collections::VecDeque,
     ffi::{OsStr, OsString},
     io, iter,
     os::unix::process::ExitStatusExt,
@@ -110,12 +122,15 @@ pub mod exe {
   }
 
   impl Exe {
+    /// This is a natural "unset" state for the executable.
     pub fn is_empty(&self) -> bool {
       let Self(fs::File(exe)) = self;
       exe.as_os_str().is_empty()
     }
+  }
 
-    pub fn into_path_buf(self) -> PathBuf {
+  impl PathWrapper for Exe {
+    fn into_path_buf(self) -> PathBuf {
       let Self(exe) = self;
       exe.into_path_buf()
     }
@@ -126,11 +141,11 @@ pub mod exe {
   /// FIXME
   #[derive(Debug, Display, Clone, Default)]
   #[ignore_extra_doc_attributes]
-  pub struct Argv(pub Vec<OsString>);
+  pub struct Argv(pub VecDeque<OsString>);
 
   impl<R: AsRef<OsStr>, I: iter::IntoIterator<Item=R>> From<I> for Argv {
     fn from(value: I) -> Self {
-      let argv: Vec<OsString> = value
+      let argv: VecDeque<OsString> = value
         .into_iter()
         .map(|s| {
           let s: &OsStr = s.as_ref();
@@ -142,20 +157,20 @@ pub mod exe {
   }
 
   impl Argv {
-    pub fn trailing_args(self) -> Self {
-      let Self(argv) = self;
-      if argv.is_empty() {
-        Self(vec![])
+    /// If we're non-empty, prefix ourself with `--`.
+    pub fn trailing_args(mut self) -> Self {
+      if self.0.is_empty() {
+        Self(VecDeque::new())
       } else {
-        Self(["--".into()].into_iter().chain(argv.into_iter()).collect())
+        self.unshift("--".into());
+        self
       }
     }
 
+    /// Prefix ourself with the given `leftmost_arg`.
     pub fn unshift(&mut self, leftmost_arg: OsString) {
-      let mut ret = vec![leftmost_arg];
       let Self(ref mut argv) = self;
-      ret.extend(argv.clone());
-      *argv = ret;
+      argv.push_front(leftmost_arg);
     }
   }
 
@@ -237,7 +252,7 @@ pub mod exe {
   }
 
   impl Command {
-    pub fn command(self) -> async_process::Command {
+    pub(crate) fn command(self) -> async_process::Command {
       dbg!(&self);
       let Self {
         exe,
@@ -261,6 +276,7 @@ pub mod exe {
       command
     }
 
+    /// Make this command execute the `new_exe` binary instead, shifting all args one to the right.
     pub fn unshift_new_exe(&mut self, new_exe: Exe) {
       if new_exe.is_empty() {
         unreachable!("new_exe is an empty string!! self was: {:?}", self);
@@ -275,7 +291,7 @@ pub mod exe {
       self.exe = new_exe;
     }
 
-    pub fn unshift_shell_script(&mut self, script_path: Exe) {
+    pub(crate) fn unshift_shell_script(&mut self, script_path: Exe) {
       self.unshift_new_exe(script_path);
       self.unshift_new_exe(Exe(fs::File(PathBuf::from("sh"))));
     }
@@ -331,7 +347,11 @@ pub mod exe {
       }
     }
 
-    pub fn command_with_context(self, command: Command, context: String) -> CommandErrorWrapper {
+    pub(crate) fn command_with_context(
+      self,
+      command: Command,
+      context: String,
+    ) -> CommandErrorWrapper {
       CommandErrorWrapper {
         command,
         context,
@@ -345,6 +365,7 @@ pub mod exe {
   pub struct CommandErrorWrapper {
     /// The command that attempted to be executed.
     pub command: Command,
+    /// Additional information about where the error occurred.
     pub context: String,
     /// The underlying error.
     #[source]
@@ -352,6 +373,7 @@ pub mod exe {
   }
 }
 
+/// Extend the concept of a "process" to include setup, to enable abstraction.
 pub mod base {
   use super::*;
 
@@ -371,6 +393,7 @@ pub mod base {
   }
 
   impl SetupError {
+    /// Wrap a raw error with `context` to produced a wrapped error.
     pub fn with_context(self, context: String) -> SetupErrorWrapper {
       SetupErrorWrapper {
         context,
@@ -382,7 +405,9 @@ pub mod base {
   /// setup error ({context}): {error}
   #[derive(Debug, Display, Error)]
   pub struct SetupErrorWrapper {
+    /// Additional information about where the error occurred.
     pub context: String,
+    /// The underlying error.
     #[source]
     pub error: SetupError,
   }
@@ -395,6 +420,7 @@ pub mod base {
   }
 }
 
+/// Methods to execute a process "synchronously", i.e. waiting until it has exited.
 pub mod sync {
   use super::exe;
 
@@ -402,13 +428,16 @@ pub mod sync {
 
   use std::{process, str};
 
+  /// The slurped streams for a synchronously-invoked process, as raw bytes.
   #[derive(Debug, Clone)]
+  #[allow(missing_docs)]
   pub struct RawOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
   }
 
   impl RawOutput {
+    /// Parse the process's exit status with [`exe::CommandError::analyze_exit_status`].
     pub fn extract(
       command: exe::Command,
       output: process::Output,
@@ -434,6 +463,8 @@ pub mod sync {
       Ok(output)
     }
 
+    /// Decode the output streams of this process, with the invoking `command` provided for
+    /// error context.
     pub fn decode(self, command: exe::Command) -> Result<DecodedOutput, exe::CommandErrorWrapper> {
       let Self { stdout, stderr } = &self;
       let stdout = str::from_utf8(stdout)
@@ -455,12 +486,15 @@ pub mod sync {
     }
   }
 
+  /// The slurped streams for a synchronously-invoked process, after UTF-8 decoding.
   #[derive(Debug, Clone)]
+  #[allow(missing_docs)]
   pub struct DecodedOutput {
     pub stdout: String,
     pub stderr: String,
   }
 
+  /// Trait that defines "synchronously" invokable processes.
   #[async_trait]
   pub trait SyncInvocable {
     /// Invoke a child process and wait on it to complete while slurping its output.
@@ -485,6 +519,7 @@ pub mod sync {
   }
 }
 
+/// Methods to execute a process in an "asynchronous" or "streaming" fashion.
 pub mod stream {
   use super::exe;
 
@@ -493,7 +528,7 @@ pub mod stream {
 
   use std::{future::Future, io, str};
 
-  /// A handle to the result of [`SpackInvocation::invoke_streaming`].
+  /// A handle to the result an asynchronous invocation.
   pub struct Streaming {
     /// The handle to the live child process (live until [`Child::output`] is called).
     pub child: Child,
@@ -506,6 +541,7 @@ pub mod stream {
   }
 
   impl Streaming {
+    /// Stream the output of this process through `act`, then analyze the exit status.
     pub async fn exhaust_output_streams_and_wait<F>(
       self,
       act: fn(StdioLine) -> F,
@@ -559,6 +595,7 @@ pub mod stream {
       Ok(())
     }
 
+    /// Wait for the process to exit, printing lines of stdout and stderr to the terminal.
     pub async fn wait(self) -> Result<(), exe::CommandErrorWrapper> {
       self
         .exhaust_output_streams_and_wait(Self::stdio_streams_callback)
@@ -569,7 +606,9 @@ pub mod stream {
 
   /// A line of either stdout or stderr from a subprocess.
   pub enum StdioLine {
+    /// A line of stdout.
     Out(String),
+    /// A line of stderr.
     Err(String),
   }
 
@@ -599,6 +638,7 @@ pub mod stream {
     }
   }
 
+  /// Trait that defines "asynchronously" invokable processes.
   pub trait Streamable {
     /// Invoke a child process and return a handle to its output streams.
     fn invoke_streaming(self) -> Result<Streaming, exe::CommandErrorWrapper>;
@@ -627,6 +667,7 @@ pub mod stream {
   }
 }
 
+/// Methods to execute a shell script as a process.
 pub mod sh {
   use super::{
     base::{self, CommandBase},
@@ -646,6 +687,7 @@ pub mod sh {
     str,
   };
 
+  /// Errors that may occur when executing a shell script.
   #[derive(Debug, Display, Error)]
   pub enum ShellError {
     /// setup error {0}
@@ -659,6 +701,7 @@ pub mod sh {
   }
 
   impl ShellError {
+    /// Wrap a raw error with `context` to produced a wrapped error.
     pub fn with_context(self, context: String) -> ShellErrorWrapper {
       ShellErrorWrapper {
         context,
@@ -670,7 +713,9 @@ pub mod sh {
   /// shell error ({context}): {error}
   #[derive(Debug, Display, Error)]
   pub struct ShellErrorWrapper {
+    /// Additional information about where the error occurred.
     pub context: String,
+    /// The underlying error.
     #[source]
     pub error: ShellError,
   }
@@ -697,10 +742,10 @@ pub mod sh {
   ///```
   #[derive(Debug, Clone)]
   pub struct ShellSource {
+    /// The bytes of a shell script to be written to file.
     pub contents: Vec<u8>,
   }
 
-  /* let runner_script_contents = format!("{}\n\nexec $@\n", load_env.0,); */
   impl ShellSource {
     fn write_to_temp_path(self) -> io::Result<TempPath> {
       /* Create the script. */
@@ -712,6 +757,9 @@ pub mod sh {
       Ok(script_path)
     }
 
+    /// Create a handle to a shell script backed by a temp file.
+    ///
+    /// *FIXME: we don't ever delete the temp file!*
     pub async fn into_script(self) -> Result<ShellScript, ShellError> {
       let script_path = self.write_to_temp_path()?;
 
@@ -747,6 +795,7 @@ pub mod sh {
   ///```
   #[derive(Debug, Clone)]
   pub struct EnvAfterScript {
+    /// Script to run before extracting the environment.
     pub source: ShellSource,
   }
 
@@ -795,6 +844,7 @@ pub mod sh {
       Ok(output.stdout.clone())
     }
 
+    /// Execute the wrapped script and parse the output of the `env` command executed afterwards!
     pub async fn extract_env_bindings(self) -> Result<exe::EnvModifications, ShellErrorWrapper> {
       let stdout = self.extract_stdout().await?;
 
@@ -845,18 +895,23 @@ pub mod sh {
   ///```
   #[derive(Debug, Clone)]
   pub struct ShellScript {
+    /// The script to execute.
     pub script_path: exe::Exe,
   }
 
   impl ShellScript {
+    /// Provide a command line for this shell script to execute.
     pub fn with_command(self, base: exe::Command) -> ShellScriptInvocation {
       ShellScriptInvocation { script: self, base }
     }
   }
 
+  /// The command wrapper for a shell script.
   #[derive(Debug, Clone)]
   pub struct ShellScriptInvocation {
+    /// The script to preface the command line with.
     pub script: ShellScript,
+    /// The command line to provide to the script.
     pub base: exe::Command,
   }
 
