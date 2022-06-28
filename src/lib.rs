@@ -512,7 +512,7 @@ pub mod sync {
           .await
           .map_err(|e| e.into())
           .map_err(|e: exe::CommandError| {
-            e.command_with_context(self.clone(), format!("waiting for output"))
+            e.command_with_context(self.clone(), "waiting for output".to_string())
           })?;
       let output = RawOutput::extract(self, output)?;
       Ok(output)
@@ -573,11 +573,11 @@ pub mod stream {
       }
       .await
       .map_err(|e: exe::CommandError| {
-        e.command_with_context(command.clone(), format!("merging async streams"))
+        e.command_with_context(command.clone(), "merging async streams".to_string())
       })?;
 
       exe::CommandError::analyze_exit_status(status)
-        .map_err(|e| e.command_with_context(command, format!("checking async exit status")))?;
+        .map_err(|e| e.command_with_context(command, "checking async exit status".to_string()))?;
       Ok(())
     }
 
@@ -654,7 +654,7 @@ pub mod stream {
         .spawn()
         .map_err(|e| e.into())
         .map_err(|e: exe::CommandError| {
-          e.command_with_context(self.clone(), format!("spawning async process"))
+          e.command_with_context(self.clone(), "spawning async process".to_string())
         })?;
       let stdout = child.stdout.take().unwrap();
       let stderr = child.stderr.take().unwrap();
@@ -815,18 +815,18 @@ pub mod sh {
       let script = source
         .into_script()
         .await
-        .map_err(|e| e.with_context(format!("when writing env script to file")))?;
+        .map_err(|e| e.with_context("when writing env script to file".to_string()))?;
       /* Generate command. */
       let sh = script.with_command(exe::Command::default());
       let command = sh
         .setup_command()
         .await
         .map_err(|e| {
-          e.with_context(format!("when setting up the shell command"))
+          e.with_context("when setting up the shell command".to_string())
             .into()
         })
         .map_err(|e: ShellError| {
-          e.with_context(format!("when setting up the shell command, again"))
+          e.with_context("when setting up the shell command, again".to_string())
         })?;
       Ok(command)
     }
@@ -840,9 +840,9 @@ pub mod sh {
         .invoke()
         .await
         .map_err(|e| e.into())
-        .map_err(|e: ShellError| e.with_context(format!("when extracting env bindings")))?;
+        .map_err(|e: ShellError| e.with_context("when extracting env bindings".to_string()))?;
 
-      Ok(output.stdout.clone())
+      Ok(output.stdout)
     }
 
     /// Execute the wrapped script and parse the output of the `env` command executed afterwards!
@@ -854,7 +854,7 @@ pub mod sh {
       for line in stdout.lines() {
         let line = line
           .map_err(|e| e.into())
-          .map_err(|e: ShellError| e.with_context(format!("when extracting stdout line")))?;
+          .map_err(|e: ShellError| e.with_context("when extracting stdout line".to_string()))?;
         /* FIXME: we currently just ignore lines that don't have an '=' -- fix this! */
         if let Some(equals_index) = line.find('=') {
           let key = &line[..equals_index];
