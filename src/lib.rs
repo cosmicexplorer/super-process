@@ -759,7 +759,7 @@ pub mod sh {
 
     /// Create a handle to a shell script backed by a temp file.
     ///
-    /// *FIXME: we don't ever delete the temp file!*
+    /// *FIXME: we don't ever delete the temp file! Use lifetimes to avoid this!*
     pub async fn into_script(self) -> Result<ShellScript, ShellError> {
       let script_path = self.write_to_temp_path()?;
 
