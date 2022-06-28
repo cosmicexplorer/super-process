@@ -19,6 +19,12 @@
  */
 
 //! An async process creation framework. More of a utility library.
+//!
+//! - *TODO: [`fs`] doesn't do much yet.*
+//! - [`exe::Command`] covers all the configuration for a single process invocation.
+//! - [`base::CommandBase`] abstracts a process invocation which requires setup work.
+//! - [`sync`] and [`stream`] invoke processes "synchronously" or "asynchronously".
+//! - [`sh`] wraps a shell script invocation.
 
 #![deny(rustdoc::missing_crate_level_docs)]
 #![warn(missing_docs)]
@@ -49,7 +55,7 @@ pub mod fs {
   use std::path::PathBuf;
 
   /// Trait for objects representing a handle to a filesystem path.
-  pub trait PathWrapper {
+  pub(crate) trait PathWrapper {
     /// Consume this object and return a path.
     fn into_path_buf(self) -> PathBuf;
   }
@@ -122,7 +128,9 @@ pub mod exe {
   }
 
   impl Exe {
-    /// This is a natural "unset" state for the executable.
+    /// This is the default state of the executable.
+    ///
+    /// If an executable in this state is invoked, a panic will occur.
     pub fn is_empty(&self) -> bool {
       let Self(fs::File(exe)) = self;
       exe.as_os_str().is_empty()
@@ -198,45 +206,8 @@ pub mod exe {
 
   /// <exe={exe}, wd={wd:?}, argv={argv}, env={env}>
   ///
-  /// Request to execute a subprocess.
-  ///```
-  /// # fn main() -> Result<(), super_process::Error> {
-  /// # tokio_test::block_on(async {
-  /// use std::{str, path::PathBuf};
-  /// use futures_lite::io::AsyncReadExt;
-  /// use super_process::{fs, exe, sync::SyncInvocable, stream::Streamable};
-  ///
-  /// let command = exe::Command {
-  ///   exe: exe::Exe(fs::File(PathBuf::from("echo"))),
-  ///   argv: ["hey"].as_ref().into(),
-  ///   ..Default::default()
-  /// };
-  ///
-  /// // Spawn the child process and wait for it to end.
-  /// let output = command.clone().invoke().await.expect("sync subprocess failed");
-  /// // Parse stdout into utf8...
-  /// let hey = str::from_utf8(&output.stdout).expect("utf8 decoding failed")
-  ///   // ...and strip the trailing newline.
-  ///   .strip_suffix("\n")
-  ///   .expect("trailing newline not found");
-  /// assert!(hey == "hey");
-  ///
-  /// // Spawn the child process and stream its output, ignoring stderr for now.
-  /// let mut streaming = command.invoke_streaming().expect("streaming subprocess failed");
-  /// // Slurp stdout all at once into a string.
-  /// let mut out: String = "".to_string();
-  /// streaming.stdout.read_to_string(&mut out).await.expect("reading stdout failed");
-  ///
-  /// // Now verify the process exited successfully.
-  /// streaming.wait().await.expect("streaming command should have succeeded");
-  ///
-  /// // Validate we get the same output streaming.
-  /// let hey = out.strip_suffix("\n").unwrap();
-  /// assert!(hey == "hey");
-  /// # Ok(())
-  /// # }) // async
-  /// # }
-  ///```
+  /// Request to execute a subprocess. See [`crate::sync`] and [`crate::stream`] for examples
+  /// of invocation.
   #[derive(Debug, Display, Clone, Default)]
   #[ignore_extra_doc_attributes]
   pub struct Command {
@@ -422,6 +393,31 @@ pub mod base {
 }
 
 /// Methods to execute a process "synchronously", i.e. waiting until it has exited.
+///
+///```
+/// # fn main() -> Result<(), super_process::Error> {
+/// # tokio_test::block_on(async {
+/// use std::{str, path::PathBuf};
+/// use super_process::{fs, exe, sync::SyncInvocable};
+///
+/// let command = exe::Command {
+///   exe: exe::Exe(fs::File(PathBuf::from("echo"))),
+///   argv: ["hey"].as_ref().into(),
+///   ..Default::default()
+/// };
+///
+/// // Spawn the child process and wait for it to end.
+/// let output = command.clone().invoke().await.expect("sync subprocess failed");
+/// // Parse stdout into utf8...
+/// let hey = str::from_utf8(&output.stdout).expect("utf8 decoding failed")
+///   // ...and strip the trailing newline.
+///   .strip_suffix("\n")
+///   .expect("trailing newline not found");
+/// assert_eq!(hey, "hey");
+/// # Ok(())
+/// # }) // async
+/// # }
+///```
 pub mod sync {
   use super::exe;
 
@@ -521,6 +517,36 @@ pub mod sync {
 }
 
 /// Methods to execute a process in an "asynchronous" or "streaming" fashion.
+///
+///```
+/// # fn main() -> Result<(), super_process::Error> {
+/// # tokio_test::block_on(async {
+/// use std::path::PathBuf;
+/// use futures_lite::io::AsyncReadExt;
+/// use super_process::{fs, exe, stream::Streamable};
+///
+/// let command = exe::Command {
+///   exe: exe::Exe(fs::File(PathBuf::from("echo"))),
+///   argv: ["hey"].as_ref().into(),
+///   ..Default::default()
+/// };
+///
+/// // Spawn the child process and stream its output, ignoring stderr for now.
+/// let mut streaming = command.invoke_streaming().expect("streaming subprocess failed");
+/// // Slurp stdout all at once into a string.
+/// let mut out: String = "".to_string();
+/// streaming.stdout.read_to_string(&mut out).await.expect("reading stdout failed");
+///
+/// // Now verify the process exited successfully.
+/// streaming.wait().await.expect("streaming command should have succeeded");
+///
+/// // Validate we get the same output streaming.
+/// let hey = out.strip_suffix("\n").unwrap();
+/// assert!(hey == "hey");
+/// # Ok(())
+/// # }) // async
+/// # }
+///```
 pub mod stream {
   use super::exe;
 
