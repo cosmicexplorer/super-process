@@ -570,9 +570,12 @@ pub mod stream {
 
       /* Crossing the streams!!! */
       let status = async move {
-        while let Some(line) =
-          StdioLine::merge_streams(out_lines.next().boxed(), err_lines.next().boxed()).await?
-        {
+        loop {
+          let line = tokio::select! {
+            Some(err) = err_lines.next() => StdioLine::Err(err?),
+            Some(out) = out_lines.next() => StdioLine::Out(out?),
+            else => break,
+          };
           act(line).await?;
         }
         let output = child.status().await?;
@@ -619,32 +622,6 @@ pub mod stream {
     Out(String),
     /// A line of stderr.
     Err(String),
-  }
-
-  impl StdioLine {
-    /// Select on both stdout and stderr, with preference given to stderr if both are ready.
-    pub fn merge_streams<F>(out: F, err: F) -> impl Future<Output=io::Result<Option<Self>>>
-    where F: Future<Output=Option<io::Result<String>>> {
-      let err = async move {
-        match err.await {
-          Some(line) => match line {
-            Ok(line) => Ok(Some(Self::Err(line))),
-            Err(e) => Err(e),
-          },
-          None => Ok(None),
-        }
-      };
-      let out = async move {
-        match out.await {
-          Some(line) => match line {
-            Ok(line) => Ok(Some(Self::Out(line))),
-            Err(e) => Err(e),
-          },
-          None => Ok(None),
-        }
-      };
-      future::or(err, out)
-    }
   }
 
   /// Trait that defines "asynchronously" invokable processes.
