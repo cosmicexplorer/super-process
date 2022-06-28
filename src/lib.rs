@@ -613,7 +613,7 @@ pub mod stream {
   }
 
   /// A line of either stdout or stderr from a subprocess.
-  #[derive(Debug, PartialEq, Eq)]
+  #[derive(Debug, Clone, PartialEq, Eq)]
   pub enum StdioLine {
     /// A line of stdout.
     Out(String),
