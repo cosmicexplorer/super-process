@@ -501,6 +501,12 @@ pub mod sync {
 
 /// Methods to execute a process in an "asynchronous" or "streaming" fashion.
 ///
+/// **TODO: define a generic stream type like the `Emission` trait in `learning-progress-bar`, then
+/// express the stdio lines stream in terms of the stdio byte chunks stream!** We avoid doing that
+/// here because we expect using a [`BufReader`](futures_lite::io::BufReader) to produce
+/// [`StdioLine`](stream::StdioLine)s will be more efficient and cleaner than manually
+/// implementing a `BufReader` with `async-channel` or something.
+///
 ///```
 /// # tokio_test::block_on(async {
 /// use std::path::PathBuf;
