@@ -531,9 +531,9 @@ pub mod stream {
   use super::exe;
 
   use async_process::{self, Child, ChildStderr, ChildStdout, Stdio};
-  use futures_lite::{future, io::BufReader, prelude::*};
+  use futures_lite::{io::BufReader, prelude::*};
 
-  use std::{future::Future, io, str};
+  use std::{future::Future, str};
 
   /// A handle to the result an asynchronous invocation.
   pub struct Streaming {
