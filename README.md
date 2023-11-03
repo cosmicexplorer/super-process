@@ -1,6 +1,9 @@
 super-process
 =============
 
+**ARCHIVED: THIS HAS BEEN MOVED INTO THE GENERAL
+[SPACK-RS](https://github.com/cosmicexplorer/spack-rs) WORKSPACE!**
+
 An async process creation framework. More of a utility library.
 
 # License
